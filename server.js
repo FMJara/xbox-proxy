@@ -1,17 +1,18 @@
-import express from "express";
-import fetch from "node-fetch";
-import cors from "cors";
+import express from 'express';
+import fetch from 'node-fetch';
+import cors from 'cors';
+import NodeCache from 'node-cache';
 
 const app = express();
 app.use(cors());
 
 const PORT = process.env.PORT || 3000;
+const CACHE_TTL = 60 * 60; // 1 hora en segundos
 
-// Endpoint de Xbox Store para "All PC Games"
-const BASE_URL =
-  "https://storeedgefd.dsx.mp.microsoft.com/v8.0/pages/7f2c510b-6d4a-4b87-a0e8-6198f2b24e9e?market=AR&languages=es-AR";
+const gameCache = new NodeCache({ stdTTL: CACHE_TTL });
 
-// Función para obtener todos los juegos paginados
+const BASE_URL = 'https://storeedgefd.dsx.mp.microsoft.com/v8.0/pages/7f2c510b-6d4a-4b87-a0e8-6198f2b24e9e?market=AR&languages=es-AR';
+
 async function fetchAllGames() {
   let allProducts = [];
   let continuationToken = null;
@@ -28,9 +29,9 @@ async function fetchAllGames() {
     const products = data?.Results?.Products || [];
     const mapped = products.map((p) => ({
       id: p.ProductId,
-      name: p.LocalizedProperties[0]?.ProductTitle || "Sin nombre",
+      name: p.LocalizedProperties[0]?.ProductTitle || 'Sin nombre',
       price:
-        p.DisplaySkuAvailabilities?.[0]?.Sku?.ListPrice?.toString() || "N/A",
+        p.DisplaySkuAvailabilities?.[0]?.Sku?.ListPrice?.toString() || 'N/A',
     }));
 
     allProducts = allProducts.concat(mapped);
@@ -40,11 +41,26 @@ async function fetchAllGames() {
   return allProducts;
 }
 
-// Ruta del proxy
-app.get("/xbox-games", async (req, res) => {
+app.get('/xbox-games', async (req, res) => {
   try {
     const products = await fetchAllGames();
-    res.json({ products });
+    const cachedGames = gameCache.get('games');
+
+    if (cachedGames) {
+      const newGames = products.filter(
+        (product) => !cachedGames.some((cached) => cached.id === product.id)
+      );
+
+      if (newGames.length > 0) {
+        gameCache.set('games', [...cachedGames, ...newGames]);
+        res.json({ newGames });
+      } else {
+        res.json({ message: 'No hay juegos nuevos' });
+      }
+    } else {
+      gameCache.set('games', products);
+      res.json({ newGames: products });
+    }
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
