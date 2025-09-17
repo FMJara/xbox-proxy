@@ -1,4 +1,3 @@
-// server.js
 import express from 'express';
 import fetch from 'node-fetch';
 import cors from 'cors';
@@ -12,11 +11,9 @@ const CACHE_TTL = 60 * 60; // 1 hora en segundos
 
 const gameCache = new NodeCache({ stdTTL: CACHE_TTL });
 
-// URL base de la web de Xbox (AR / español)
 const BASE_URL =
   'https://storeedgefd.dsx.mp.microsoft.com/v8.0/pages/7f2c510b-6d4a-4b87-a0e8-6198f2b24e9e?market=AR&languages=es-AR';
 
-// Función para obtener todos los juegos con paginación
 async function fetchAllGames() {
   let allProducts = [];
   let continuationToken = null;
@@ -45,7 +42,6 @@ async function fetchAllGames() {
   return allProducts;
 }
 
-// Endpoint para obtener juegos nuevos
 app.get('/xbox-games', async (req, res) => {
   try {
     const products = await fetchAllGames();
@@ -64,7 +60,15 @@ app.get('/xbox-games', async (req, res) => {
       }
     } else {
       gameCache.set('games', products);
-      res.json({ newGames: products });
+
+      // 🔹 Parche temporal para probar en tu app
+      const fakeGames = [
+        { id: 'FAKE1', name: 'Juego de prueba 1', price: '$100' },
+        { id: 'FAKE2', name: 'Juego de prueba 2', price: '$200' },
+      ];
+
+      res.json({ newGames: fakeGames });
+      return;
     }
   } catch (err) {
     console.error(err);
