@@ -10,10 +10,9 @@ const PORT = process.env.PORT || 3000;
 const CACHE_TTL = 60 * 60; // 1 hora
 const gameCache = new NodeCache({ stdTTL: CACHE_TTL });
 
-// API de Microsoft para juegos de PC
 const BASE_URL = "https://reco-public.rec.mp.microsoft.com/channels/Reco/V8.0/Lists/Computed/pc";
-const MARKET = "AR";       // Región
-const LANGUAGE = "es";     // Idioma
+const MARKET = "US";       // Región
+const LANGUAGE = "en";     // Idioma
 const COUNT = 100;         // Juegos por página
 
 async function fetchAllGames() {
@@ -23,7 +22,7 @@ async function fetchAllGames() {
 
   while (hasMore) {
     try {
-      console.log(`Fetching games: skip=${skip}, market=${MARKET}`);
+      console.log(`Fetching games: skip=${skip}, market=${MARKET}, url=${BASE_URL}`);
       const res = await axios.get(BASE_URL, {
         params: {
           Market: MARKET,
@@ -36,15 +35,21 @@ async function fetchAllGames() {
         headers: {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
           Accept: "application/json",
-          "Accept-Language": "es-AR,es;q=0.9",
+          "Accept-Language": "en-US,en;q=0.9",
           "Referer": "https://www.microsoft.com/",
         },
-        timeout: 10000, // 10s timeout
+        timeout: 15000, // 15s timeout
       });
 
-      console.log(`Response status: ${res.status}, items: ${res.data.Items?.length || 0}`);
+      console.log(`Response status: ${res.status}`);
+      console.log(`Raw response data:`, JSON.stringify(res.data, null, 2)); // Log completo
       const items = res.data.Items || [];
-      if (items.length === 0) break;
+      console.log(`Items received: ${items.length}`);
+
+      if (items.length === 0) {
+        console.log(`No items returned at skip=${skip}. Stopping fetch.`);
+        break;
+      }
 
       const mapped = items.map((p) => ({
         id: p.Id,
@@ -64,7 +69,7 @@ async function fetchAllGames() {
       if (fetchErr.response) {
         console.error('API responded with:', fetchErr.response.status, fetchErr.response.data);
       }
-      break; // Detener si falla
+      break;
     }
   }
 
