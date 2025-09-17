@@ -7,7 +7,7 @@ const app = express();
 app.use(cors());
 
 const PORT = process.env.PORT || 3000;
-const CACHE_TTL = 60 * 60; // 1 hora en segundos
+const CACHE_TTL = 60 * 60; // 1 hora
 const gameCache = new NodeCache({ stdTTL: CACHE_TTL });
 
 const BASE_URL =
@@ -46,22 +46,29 @@ app.get("/xbox-games", async (req, res) => {
     const products = await fetchAllGames();
     const cachedGames = gameCache.get("games");
 
+    let newGames = [];
+    let priceChanges = [];
+
     if (cachedGames) {
-      const newGames = products.filter(
+      newGames = products.filter(
         (product) => !cachedGames.some((cached) => cached.id === product.id)
       );
 
-      const priceChanges = products.filter((product) => {
+      priceChanges = products.filter((product) => {
         const cached = cachedGames.find((g) => g.id === product.id);
         return cached && cached.price !== product.price;
       });
 
       gameCache.set("games", products);
-      res.json({ newGames, priceChanges });
     } else {
+      newGames = products;
+      priceChanges = [];
       gameCache.set("games", products);
-      res.json({ newGames: products, priceChanges: [] });
     }
+
+    const total = products.length; // Total de juegos
+
+    res.json({ newGames, priceChanges, total });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
