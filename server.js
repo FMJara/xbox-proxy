@@ -60,15 +60,7 @@ app.get('/xbox-games', async (req, res) => {
       }
     } else {
       gameCache.set('games', products);
-
-      // 🔹 Parche temporal para probar en tu app
-      const fakeGames = [
-        { id: 'FAKE1', name: 'Juego de prueba 1', price: '$100' },
-        { id: 'FAKE2', name: 'Juego de prueba 2', price: '$200' },
-      ];
-
-      res.json({ newGames: fakeGames });
-      return;
+      res.json({ newGames: products });
     }
   } catch (err) {
     console.error(err);
