@@ -11,8 +11,7 @@ const CACHE_TTL = 60 * 60; // 1 hora
 const gameCache = new NodeCache({ stdTTL: CACHE_TTL });
 
 // API de Microsoft para juegos de PC
-const BASE_URL =
-  "https://reco-public.rec.mp.microsoft.com/channels/Reco/V8.0/Lists/Computed/pc";
+const BASE_URL = "https://reco-public.rec.mp.microsoft.com/channels/Reco/V8.0/Lists/Computed/pc";
 const MARKET = "AR";       // Región
 const LANGUAGE = "es";     // Idioma
 const COUNT = 100;         // Juegos por página
@@ -23,36 +22,53 @@ async function fetchAllGames() {
   let hasMore = true;
 
   while (hasMore) {
-    const res = await axios.get(BASE_URL, {
-      params: {
-        Market: MARKET,
-        Language: LANGUAGE,
-        ItemTypes: "Game",
-        DeviceFamily: "Windows.Desktop",
-        count: COUNT,
-        skipitems: skip,
-      },
-      headers: {
-        "User-Agent": "Mozilla/5.0",
-        Accept: "application/json",
-      },
-    });
+    try {
+      console.log(`Fetching games: skip=${skip}, market=${MARKET}`);
+      const res = await axios.get(BASE_URL, {
+        params: {
+          Market: MARKET,
+          Language: LANGUAGE,
+          ItemTypes: "Game",
+          DeviceFamily: "Windows.Desktop",
+          count: COUNT,
+          skipitems: skip,
+        },
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+          Accept: "application/json",
+          "Accept-Language": "es-AR,es;q=0.9",
+          "Referer": "https://www.microsoft.com/",
+        },
+        timeout: 10000, // 10s timeout
+      });
 
-    const items = res.data.Items || [];
-    if (items.length === 0) break;
+      console.log(`Response status: ${res.status}, items: ${res.data.Items?.length || 0}`);
+      const items = res.data.Items || [];
+      if (items.length === 0) break;
 
-    // Mapeo de datos
-    const mapped = items.map((p) => ({
-      id: p.Id,
-      name: p.Title || "Sin nombre",
-      price: p.Price?.ListPrice?.toString() || "N/A",
-    }));
+      const mapped = items.map((p) => ({
+        id: p.Id,
+        name: p.Title || "Sin nombre",
+        price: p.Price?.ListPrice?.toString() || "N/A",
+      }));
 
-    allProducts = allProducts.concat(mapped);
-    skip += COUNT;
-    hasMore = items.length === COUNT;
+      allProducts = allProducts.concat(mapped);
+      skip += COUNT;
+      hasMore = items.length === COUNT;
+    } catch (fetchErr) {
+      console.error(`Error fetching games at skip=${skip}:`, fetchErr.message);
+      console.error('Error details:', fetchErr.code, fetchErr.config?.url);
+      if (fetchErr.code === 'ECONNREFUSED') {
+        console.error('Connection refused - likely Render network restriction or Microsoft API block');
+      }
+      if (fetchErr.response) {
+        console.error('API responded with:', fetchErr.response.status, fetchErr.response.data);
+      }
+      break; // Detener si falla
+    }
   }
 
+  console.log(`Total juegos fetchados: ${allProducts.length}`);
   return allProducts;
 }
 
@@ -68,12 +84,10 @@ app.get("/xbox-games", async (req, res) => {
       newGames = products.filter(
         (p) => !cachedGames.some((cached) => cached.id === p.id)
       );
-
       priceChanges = products.filter((p) => {
         const cached = cachedGames.find((g) => g.id === p.id);
         return cached && cached.price !== p.price;
       });
-
       gameCache.set("games", products);
     } else {
       newGames = products;
@@ -82,19 +96,19 @@ app.get("/xbox-games", async (req, res) => {
     }
 
     const total = products.length;
+    console.log(`Respondiendo: ${total} total, ${newGames.length} nuevos, ${priceChanges.length} cambios`);
 
     res.json({ newGames, priceChanges, total });
   } catch (err) {
-    console.error(err);
+    console.error("Error en /xbox-games:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-// Ruta raíz para verificar que el server anda
 app.get("/", (req, res) => {
   res.send("Servidor Xbox Proxy activo ✅");
 });
 
 app.listen(PORT, () => {
-  console.log(`Servidor corriendo en http://localhost:${PORT}`);
+  console.log(`Servidor corriendo en puerto ${PORT}`);
 });
