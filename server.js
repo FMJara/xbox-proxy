@@ -25,6 +25,7 @@ async function fetchAllGames() {
       params: {
         category: "Games",
         market: MARKET,
+        locale: MARKET,       // <-- Agregado
         start: start,
         top: PAGE_SIZE,
       },
