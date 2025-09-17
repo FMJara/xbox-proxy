@@ -10,24 +10,27 @@ const PORT = process.env.PORT || 3000;
 const CACHE_TTL = 60 * 60; // 1 hora
 const gameCache = new NodeCache({ stdTTL: CACHE_TTL });
 
-// Configuración de la API de Microsoft
-const BASE_URL = "https://displaycatalog.mp.microsoft.com/v7.0/products";
-const MARKET = "es-AR";
-const PAGE_SIZE = 50; // Número de productos por página
+// API de Microsoft para juegos de PC
+const BASE_URL =
+  "https://reco-public.rec.mp.microsoft.com/channels/Reco/V8.0/Lists/Computed/pc";
+const MARKET = "AR";       // Región
+const LANGUAGE = "es";     // Idioma
+const COUNT = 100;         // Juegos por página
 
 async function fetchAllGames() {
   let allProducts = [];
-  let start = 0;
+  let skip = 0;
   let hasMore = true;
 
   while (hasMore) {
     const res = await axios.get(BASE_URL, {
       params: {
-        category: "Games",
-        market: MARKET,
-        locale: MARKET,       // <-- Agregado
-        start: start,
-        top: PAGE_SIZE,
+        Market: MARKET,
+        Language: LANGUAGE,
+        ItemTypes: "Game",
+        DeviceFamily: "Windows.Desktop",
+        count: COUNT,
+        skipitems: skip,
       },
       headers: {
         "User-Agent": "Mozilla/5.0",
@@ -35,24 +38,19 @@ async function fetchAllGames() {
       },
     });
 
-    const products = res.data.Products || [];
+    const items = res.data.Items || [];
+    if (items.length === 0) break;
 
-    // Filtrar solo juegos compatibles con PC
-    const pcGames = products.filter(
-      (p) => p.Platforms && p.Platforms.includes("Windows.Desktop")
-    );
+    // Mapeo de datos
+    const mapped = items.map((p) => ({
+      id: p.Id,
+      name: p.Title || "Sin nombre",
+      price: p.Price?.ListPrice?.toString() || "N/A",
+    }));
 
-    allProducts = allProducts.concat(
-      pcGames.map((p) => ({
-        id: p.ProductId,
-        name: p.LocalizedProperties?.[0]?.ProductTitle || "Sin nombre",
-        price:
-          p.DisplaySkuAvailabilities?.[0]?.Sku?.ListPrice?.toString() || "N/A",
-      }))
-    );
-
-    start += PAGE_SIZE;
-    hasMore = products.length === PAGE_SIZE;
+    allProducts = allProducts.concat(mapped);
+    skip += COUNT;
+    hasMore = items.length === COUNT;
   }
 
   return allProducts;
@@ -90,6 +88,11 @@ app.get("/xbox-games", async (req, res) => {
     console.error(err);
     res.status(500).json({ error: err.message });
   }
+});
+
+// Ruta raíz para verificar que el server anda
+app.get("/", (req, res) => {
+  res.send("Servidor Xbox Proxy activo ✅");
 });
 
 app.listen(PORT, () => {
