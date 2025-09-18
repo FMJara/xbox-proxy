@@ -3,32 +3,34 @@ import axios from "axios";
 import cors from "cors";
 import NodeCache from "node-cache";
 import schedule from "node-schedule";
-import { HttpsProxyAgent } from "https-proxy-agent";
+import https from "https";
 
 const app = express();
 app.use(cors());
 
 const PORT = process.env.PORT || 3000;
-const CACHE_TTL = 60 * 60 * 24; // Cache for 24 hours
+const CACHE_TTL = 60 * 60 * 24; // Caché por 24 horas
 const CACHE_KEY = "xboxGames";
 const gameCache = new NodeCache({ stdTTL: CACHE_TTL });
 
-// URL de un proxy público para enmascarar la conexión y evitar bloqueos.
-// Esto soluciona el problema de enrutamiento en el servidor de Render.
-const PROXY_URL = 'http://165.22.186.208:8080';
-const agent = new HttpsProxyAgent(PROXY_URL);
+// Creamos un agente HTTPS para evitar problemas de proxy o certificados
+// Esto soluciona el error ECONNREFUSED en algunos entornos de despliegue
+const httpsAgent = new https.Agent({
+  rejectUnauthorized: false,
+  maxSockets: 5
+});
 
 // API de Microsoft para juegos de PC
 const BASE_URL = "https://reco-public.rec.mp.microsoft.com/channels/Reco/V8.0/Lists/Computed/pc";
 const MARKET = "AR";
 const LANGUAGE = "es";
-const COUNT = 100; // Games per page
+const COUNT = 100; // Juegos por página
 
 /**
- * Function that uses pagination to get all games from the Microsoft API.
+ * Función que usa paginación para obtener todos los juegos de la API de Microsoft.
  */
 async function fetchAllGames() {
-  console.log("🔍 Starting to fetch all games from the Microsoft API...");
+  console.log("🔍 Iniciando la obtención de todos los juegos de la API de Microsoft...");
   let allProducts = [];
   let skip = 0;
   let totalItemsFound = 0;
@@ -48,18 +50,19 @@ async function fetchAllGames() {
           "User-Agent": "Mozilla/5.0",
           Accept: "application/json",
         },
-        timeout: 60000,
-        httpsAgent: agent, // Use the proxy agent
+        timeout: 30000,
+        httpsAgent: httpsAgent, // Aquí pasamos el agente para forzar la conexión directa
       });
 
       const items = res.data.Items || [];
+
       if (items.length === 0) {
         break;
       }
 
       const mapped = items.map((p) => ({
         id: p.Id,
-        name: p.Title || "No Name",
+        name: p.Title || "Sin nombre",
         price: p.Price?.ListPrice?.toString() || "N/A",
         link: p.Uri || '#'
       }));
@@ -68,47 +71,47 @@ async function fetchAllGames() {
       skip += COUNT;
       totalItemsFound = res.data.TotalItems || totalItemsFound;
       
-      console.log(`Pagination: Fetched ${allProducts.length} games out of ${totalItemsFound}.`);
+      console.log(`Paginación: Obtenidos ${allProducts.length} juegos de ${totalItemsFound}.`);
 
       if (items.length < COUNT) {
           break;
       }
     }
-    console.log(`✅ Game fetching process completed! Total: ${allProducts.length}`);
+    console.log(`✅ ¡Proceso de obtención de juegos completado! Total: ${allProducts.length}`);
     return allProducts;
   } catch (err) {
-    console.error(`❌ Error fetching games from the Microsoft API: ${err.message}`);
+    console.error(`❌ Error al obtener juegos de la API de Microsoft: ${err.message}`);
     return allProducts;
   }
 }
 
 /**
- * Function that runs in a cron job to update the cache.
+ * Función que se ejecuta en un cron job para actualizar el caché.
  */
 async function updateCache() {
   const games = await fetchAllGames();
   if (games.length > 0) {
     gameCache.set(CACHE_KEY, games);
-    console.log(`📦 Cache updated with ${games.length} games.`);
+    console.log(`📦 Caché actualizado con ${games.length} juegos.`);
   } else {
-    console.log("⚠️ Could not get the game list to update the cache.");
+    console.log("⚠️ No se pudo obtener la lista de juegos para actualizar el caché.");
   }
 }
 
-// Start the cache update job on server startup
+// Iniciar el job de actualización al arrancar el servidor
 updateCache();
 
-// Schedule the task to run every 12 hours
+// Programar la tarea para que se ejecute cada 12 horas
 schedule.scheduleJob('0 */12 * * *', updateCache);
 
-// API endpoints
+// Endpoints de la API
 app.get("/xbox-games", (req, res) => {
   const games = gameCache.get(CACHE_KEY);
   
   if (!games) {
     return res.status(503).json({
-      message: "The cache is not yet populated. Please try again in a moment.",
-      status: "pending"
+      message: "El caché aún no se ha llenado. Por favor, inténtalo de nuevo en un momento.",
+      status: "pendiente"
     });
   }
 
@@ -118,20 +121,20 @@ app.get("/xbox-games", (req, res) => {
     games,
     total: games.length,
     lastUpdated,
-    source: 'cached-data'
+    source: 'datos-de-cache'
   });
 });
 
 app.get("/", (req, res) => {
   res.json({
-    message: "Xbox Games API 🎮",
-    status: "active",
+    message: "API de Juegos de Xbox 🎮",
+    status: "activo",
     endpoints: {
-      "/xbox-games": "Gets the list of Xbox games from the cache (with pagination)",
+      "/xbox-games": "Obtiene la lista de juegos de Xbox de la caché (con paginación)",
     }
   });
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
 });
