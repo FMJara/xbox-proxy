@@ -2,7 +2,6 @@ import express from "express";
 import axios from "axios";
 import cors from "cors";
 import NodeCache from "node-cache";
-import schedule from "node-schedule";
 import https from "https";
 
 const app = express();
@@ -26,13 +25,13 @@ const LANGUAGE = "es";
 const COUNT = 100; // Juegos por página
 const MAX_PAGES = 3; // Límite de páginas para la carga inicial
 
-// Bandera para evitar múltiples llamadas de carga
+// Bandera para evitar múltiples llamadas de carga inicial
 let isFetchingInitialData = false;
 
 /**
  * Función que usa paginación para obtener los primeros juegos de la API de Microsoft.
  */
-async function fetchInitialGames() {
+async function fetchAndCacheInitialGames() {
   if (isFetchingInitialData) {
     console.log("⚠️ Ya se está cargando la data inicial. Saliendo...");
     return;
@@ -96,64 +95,18 @@ async function fetchInitialGames() {
   }
 }
 
-
-// Función que se ejecuta en un cron job (solo en entornos que lo soporten)
-async function updateCache() {
-  console.log("🔄 Actualizando el caché en segundo plano...");
-  let allProducts = [];
-  let skip = 0;
-  try {
-    while (true) {
-      const res = await axios.get(BASE_URL, {
-        params: {
-          Market: MARKET,
-          Language: LANGUAGE,
-          ItemTypes: "Game",
-          DeviceFamily: "Windows.Desktop",
-          count: COUNT,
-          skipitems: skip,
-        },
-        headers: {
-          "User-Agent": "Mozilla/5.0",
-          Accept: "application/json",
-        },
-        timeout: 30000,
-        httpsAgent: httpsAgent,
-      });
-      const items = res.data.Items || [];
-      if (items.length === 0) break;
-      allProducts = allProducts.concat(items.map((p) => ({
-        id: p.Id,
-        name: p.Title || "Sin nombre",
-        price: p.Price?.ListPrice?.toString() || "N/A",
-        link: p.Uri || '#'
-      })));
-      skip += COUNT;
-      if (items.length < COUNT) break;
-    }
-    if (allProducts.length > 0) {
-      gameCache.set(CACHE_KEY, allProducts);
-      console.log(`📦 Caché completo actualizado con ${allProducts.length} juegos.`);
-    }
-  } catch (err) {
-    console.error(`❌ Error en la actualización del caché: ${err.message}`);
-  }
-}
-// Programar la tarea para que se ejecute cada 12 horas
-schedule.scheduleJob('0 */12 * * *', updateCache);
-
 // Endpoints de la API
-app.get("/xbox-games", async (req, res) => {
+app.get("/xbox-games", (req, res) => {
   const games = gameCache.get(CACHE_KEY);
   
   if (!games || games.length === 0) {
-    // Si el caché está vacío, iniciamos la carga si no está ya en curso
+    // Si el caché está vacío, iniciamos la carga en segundo plano
     if (!isFetchingInitialData) {
-      console.log("Caché vacío, iniciando carga de datos...");
-      fetchInitialGames();
+      console.log("Caché vacío, iniciando carga de datos en segundo plano...");
+      fetchAndCacheInitialGames();
     }
-    return res.status(503).json({
-      message: "El caché está vacío. Cargando los juegos, por favor inténtalo de nuevo en unos segundos.",
+    return res.status(202).json({
+      message: "Cargando los juegos. Por favor, inténtalo de nuevo en unos segundos.",
       status: "cargando"
     });
   }
