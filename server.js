@@ -24,18 +24,20 @@ const BASE_URL = "https://reco-public.rec.mp.microsoft.com/channels/Reco/V8.0/Li
 const MARKET = "AR";
 const LANGUAGE = "es";
 const COUNT = 100; // Juegos por página
+const MAX_PAGES = 2; // Limitar el número de páginas a obtener inicialmente
 
 /**
- * Función que usa paginación para obtener todos los juegos de la API de Microsoft.
+ * Función que usa paginación para obtener los primeros juegos de la API de Microsoft.
  */
 async function fetchAllGames() {
   console.log("🔍 Iniciando la obtención de todos los juegos de la API de Microsoft...");
   let allProducts = [];
   let skip = 0;
   let totalItemsFound = 0;
+  let pagesFetched = 0;
 
   try {
-    while (true) {
+    while (pagesFetched < MAX_PAGES) { // Solo obtener un número limitado de páginas
       const res = await axios.get(BASE_URL, {
         params: {
           Market: MARKET,
@@ -69,6 +71,7 @@ async function fetchAllGames() {
       allProducts = allProducts.concat(mapped);
       skip += COUNT;
       totalItemsFound = res.data.TotalItems || totalItemsFound;
+      pagesFetched++;
       
       console.log(`Paginación: Obtenidos ${allProducts.length} juegos de ${totalItemsFound}.`);
 
