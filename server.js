@@ -2,242 +2,133 @@ import express from "express";
 import axios from "axios";
 import cors from "cors";
 import NodeCache from "node-cache";
-import * as cheerio from "cheerio";
+import schedule from "node-schedule";
 
 const app = express();
 app.use(cors());
 
 const PORT = process.env.PORT || 3000;
-const CACHE_TTL = 60 * 60;
+const CACHE_TTL = 60 * 60 * 24; // Caché por 24 horas
+const CACHE_KEY = "xboxGames";
 const gameCache = new NodeCache({ stdTTL: CACHE_TTL });
 
-// URL de Xbox
-const XBOX_URL = "https://www.xbox.com/es-AR/games/all-games/pc?PlayWith=PC";
+// API de Microsoft para juegos de PC
+const BASE_URL = "https://reco-public.rec.mp.microsoft.com/channels/Reco/V8.0/Lists/Computed/pc";
+const MARKET = "AR";
+const LANGUAGE = "es";
+const COUNT = 100; // Juegos por página
 
-async function fetchXboxGames() {
+/**
+ * Función que usa paginación para obtener todos los juegos de la API de Microsoft.
+ */
+async function fetchAllGames() {
+  console.log("🔍 Iniciando la obtención de todos los juegos de la API de Microsoft...");
+  let allProducts = [];
+  let skip = 0;
+  let totalItemsFound = 0;
+
   try {
-    console.log("🔍 Iniciando scraping de Xbox...");
-    
-    const response = await axios.get(XBOX_URL, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'es-AR,es;q=0.9,en;q=0.8',
-        'Accept-Encoding': 'gzip, deflate, br'
-      },
-      timeout: 15000
-    });
+    while (true) {
+      const res = await axios.get(BASE_URL, {
+        params: {
+          Market: MARKET,
+          Language: LANGUAGE,
+          ItemTypes: "Game",
+          DeviceFamily: "Windows.Desktop",
+          count: COUNT,
+          skipitems: skip,
+        },
+        headers: {
+          "User-Agent": "Mozilla/5.0",
+          Accept: "application/json",
+        },
+        timeout: 30000 // Aumentar el tiempo de espera
+      });
 
-    const $ = cheerio.load(response.data);
-    const games = [];
-    
-    console.log("📄 Página cargada, buscando juegos...");
+      const items = res.data.Items || [];
 
-    // Estrategia 1: Buscar por estructura de tarjetas de juego
-    $('[class*="game"], [class*="card"], [class*="item"]').each((index, element) => {
-      try {
-        const $el = $(element);
-        const title = $el.find('h3, h2, [class*="title"], [class*="name"]').first().text().trim();
-        const price = $el.find('[class*="price"], [class*="cost"], [class*="value"]').first().text().trim() || 'Gratis';
-        let link = $el.find('a').attr('href') || $el.attr('href');
-        
-        if (title && title.length > 2 && !title.match(/^\d+$/) && !title.includes('©')) {
-          if (link && !link.startsWith('http')) {
-            link = `https://www.xbox.com${link}`;
-          }
-          
-          const game = {
-            id: `game-${index}-${Date.now()}`,
-            name: title,
-            price: price.replace(/\s+/g, ' ').substring(0, 50),
-            link: link || '#'
-          };
-          
-          // Evitar duplicados
-          if (!games.some(g => g.name === game.name)) {
-            games.push(game);
-          }
-        }
-      } catch (error) {
-        // Continuar con el siguiente elemento
+      if (items.length === 0) {
+        break; // No hay más juegos, salir del ciclo
       }
-    });
 
-    // Estrategia 2: Si no encontramos juegos, buscar por patrones más generales
-    if (games.length === 0) {
-      $('a').each((index, element) => {
-        try {
-          const $el = $(element);
-          const href = $el.attr('href');
-          const text = $el.text().trim();
-          
-          if (href && href.includes('/games/') && text.length > 3) {
-            const game = {
-              id: `fallback-${index}-${Date.now()}`,
-              name: text,
-              price: 'Precio no disponible',
-              link: href.startsWith('http') ? href : `https://www.xbox.com${href}`
-            };
-            
-            if (!games.some(g => g.name === game.name)) {
-              games.push(game);
-            }
-          }
-        } catch (error) {
-          // Continuar
-        }
-      });
+      const mapped = items.map((p) => ({
+        id: p.Id,
+        name: p.Title || "Sin nombre",
+        price: p.Price?.ListPrice?.toString() || "N/A",
+        link: p.Uri || '#'
+      }));
+
+      allProducts = allProducts.concat(mapped);
+      skip += COUNT;
+      totalItemsFound = res.data.TotalItems || totalItemsFound;
+      
+      console.log(`Paginación: Obtenidos ${allProducts.length} juegos de ${totalItemsFound}.`);
+
+      if (items.length < COUNT) {
+          break; // La última página tiene menos de 100 items, es el final
+      }
     }
-
-    console.log(`✅ Encontrados ${games.length} juegos`);
-    return games;
-
-  } catch (error) {
-    console.error('❌ Error en scraping:', error.message);
-    
-    // Fallback a la API de Microsoft
-    try {
-      console.log('🔄 Usando API de Microsoft como fallback...');
-      return await fetchMicrosoftAPI();
-    } catch (fallbackError) {
-      console.error('❌ Fallback también falló:', fallbackError.message);
-      return [];
-    }
-  }
-}
-
-// API de Microsoft como fallback
-async function fetchMicrosoftAPI() {
-  try {
-    const BASE_URL = "https://reco-public.rec.mp.microsoft.com/channels/Reco/V8.0/Lists/Computed/pc";
-    
-    const response = await axios.get(BASE_URL, {
-      params: {
-        Market: "AR",
-        Language: "es",
-        ItemTypes: "Game",
-        DeviceFamily: "Windows.Desktop",
-        count: 50,
-        skipitems: 0,
-      },
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept": "application/json",
-      },
-      timeout: 10000
-    });
-
-    const items = response.data.Items || [];
-    return items.map((item, index) => ({
-      id: item.Id || `ms-${index}-${Date.now()}`,
-      name: item.Title || "Juego sin nombre",
-      price: item.Price?.ListPrice?.toString() || "N/A",
-      link: "#"
-    }));
-
-  } catch (error) {
-    console.error('Error en API Microsoft:', error.message);
-    return [];
-  }
-}
-
-app.get("/xbox-games", async (req, res) => {
-  try {
-    console.log("📦 Obteniendo datos de juegos...");
-    
-    const currentGames = await fetchXboxGames();
-    const cachedGames = gameCache.get("games") || [];
-
-    let newGames = [];
-    let priceChanges = [];
-
-    if (cachedGames.length > 0) {
-      // Detectar juegos nuevos
-      newGames = currentGames.filter(
-        current => !cachedGames.some(cached => cached.name === current.name)
-      );
-
-      // Detectar cambios de precio
-      priceChanges = currentGames.filter(current => {
-        const cachedGame = cachedGames.find(cached => cached.name === current.name);
-        return cachedGame && cachedGame.price !== current.price;
-      }).map(game => {
-        const cached = cachedGames.find(cached => cached.name === game.name);
-        return {
-          id: game.id,
-          name: game.name,
-          oldPrice: cached?.price,
-          newPrice: game.price,
-          link: game.link
-        };
-      });
-
-      console.log(`🆕 Nuevos juegos: ${newGames.length}, 💰 Cambios de precio: ${priceChanges.length}`);
-    } else {
-      newGames = currentGames;
-      console.log('Primera ejecución, todos los juegos se consideran nuevos');
-    }
-
-    // Actualizar cache
-    gameCache.set("games", currentGames);
-
-    res.json({
-      newGames,
-      priceChanges,
-      total: currentGames.length,
-      lastUpdated: new Date().toISOString(),
-      source: 'xbox-scraping'
-    });
-
+    console.log(`✅ ¡Proceso de obtención de juegos completado! Total: ${allProducts.length}`);
+    return allProducts;
   } catch (err) {
-    console.error("Error en servidor:", err);
-    
-    // Intentar devolver datos del cache si hay error
-    const cachedGames = gameCache.get("games") || [];
-    res.json({
-      newGames: [],
-      priceChanges: [],
-      total: cachedGames.length,
-      lastUpdated: new Date().toISOString(),
-      source: 'cache-fallback',
-      error: err.message
+    console.error(`❌ Error al obtener juegos de la API de Microsoft: ${err.message}`);
+    // Si hay un error, devolvemos la lista de juegos que se pudo obtener hasta el momento.
+    return allProducts;
+  }
+}
+
+/**
+ * Función que se ejecuta en un cron job para actualizar el caché.
+ */
+async function updateCache() {
+  const games = await fetchAllGames();
+  if (games.length > 0) {
+    gameCache.set(CACHE_KEY, games);
+    console.log(`📦 Caché actualizado con ${games.length} juegos.`);
+  } else {
+    console.log("⚠️ No se pudo obtener la lista de juegos para actualizar el caché.");
+  }
+}
+
+// Iniciar el job de actualización al arrancar el servidor
+updateCache();
+
+// Programar la tarea para que se ejecute cada 12 horas
+schedule.scheduleJob('0 */12 * * *', updateCache);
+
+// Endpoints de la API
+app.get("/xbox-games", (req, res) => {
+  const games = gameCache.get(CACHE_KEY);
+  
+  if (!games) {
+    return res.status(503).json({
+      message: "El caché aún no se ha llenado. Por favor, inténtalo de nuevo en un momento.",
+      status: "pendiente"
     });
   }
-});
 
-// Ruta simple para test
-app.get("/test", async (req, res) => {
-  try {
-    const games = await fetchXboxGames();
-    res.json({
-      message: "Test exitoso",
-      totalGames: games.length,
-      sample: games.slice(0, 5)
-    });
-  } catch (error) {
-    res.json({ error: error.message });
-  }
-});
-
-// Ruta para limpiar cache
-app.get("/clear-cache", (req, res) => {
-  gameCache.flushAll();
-  res.json({ message: "Cache limpiado" });
+  // En una aplicación real, la lógica para nuevos juegos y cambios de precio
+  // se gestionaría con una base de datos. Aquí, solo devolvemos los datos completos.
+  const lastUpdated = new Date(gameCache.getStats().v[CACHE_KEY].t).toISOString();
+  
+  res.json({
+    games,
+    total: games.length,
+    lastUpdated,
+    source: 'datos-de-cache'
+  });
 });
 
 app.get("/", (req, res) => {
   res.json({
-    message: "Xbox Games API 🎮",
+    message: "API de Juegos de Xbox 🎮",
+    status: "activo",
     endpoints: {
-      "/xbox-games": "Juegos nuevos y cambios de precio",
-      "/test": "Test de scraping",
-      "/clear-cache": "Limpiar cache"
-    },
-    status: "active"
+      "/xbox-games": "Obtiene la lista de juegos de Xbox de la caché (con paginación)",
+    }
   });
 });
 
 app.listen(PORT, () => {
   console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
-  console.log(`🌐 URL: http://localhost:${PORT}`);
 });
