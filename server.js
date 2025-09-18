@@ -13,8 +13,7 @@ const CACHE_TTL = 60 * 60 * 24; // Caché por 24 horas
 const CACHE_KEY = "xboxGames";
 const gameCache = new NodeCache({ stdTTL: CACHE_TTL });
 
-// Creamos un agente HTTPS para evitar problemas de proxy o certificados
-// Esto soluciona el error ECONNREFUSED en algunos entornos de despliegue
+// Creamos un agente HTTPS para manejar la conexión de forma robusta
 const httpsAgent = new https.Agent({
   rejectUnauthorized: false,
   maxSockets: 5
@@ -51,7 +50,7 @@ async function fetchAllGames() {
           Accept: "application/json",
         },
         timeout: 30000,
-        httpsAgent: httpsAgent, // Aquí pasamos el agente para forzar la conexión directa
+        httpsAgent: httpsAgent,
       });
 
       const items = res.data.Items || [];
