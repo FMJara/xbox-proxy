@@ -88,27 +88,28 @@ async function fetchAndCacheInitialGames() {
     } else {
       console.log("⚠️ No se pudo obtener la lista de juegos para actualizar el caché.");
     }
+    return allProducts;
   } catch (err) {
     console.error(`❌ Error al obtener juegos de la API de Microsoft: ${err.message}`);
+    return [];
   } finally {
     isFetchingInitialData = false;
   }
 }
 
 // Endpoints de la API
-app.get("/xbox-games", (req, res) => {
-  const games = gameCache.get(CACHE_KEY);
+app.get("/xbox-games", async (req, res) => {
+  let games = gameCache.get(CACHE_KEY);
   
   if (!games || games.length === 0) {
-    // Si el caché está vacío, iniciamos la carga en segundo plano
-    if (!isFetchingInitialData) {
-      console.log("Caché vacío, iniciando carga de datos en segundo plano...");
-      fetchAndCacheInitialGames();
+    console.log("Caché vacío, iniciando carga de datos...");
+    games = await fetchAndCacheInitialGames();
+    if (games.length === 0) {
+      return res.status(503).json({
+        message: "No se pudieron obtener los juegos. Por favor, inténtalo de nuevo más tarde.",
+        status: "error"
+      });
     }
-    return res.status(202).json({
-      message: "Cargando los juegos. Por favor, inténtalo de nuevo en unos segundos.",
-      status: "cargando"
-    });
   }
 
   const lastUpdated = new Date(gameCache.getStats().v[CACHE_KEY].t).toISOString();
