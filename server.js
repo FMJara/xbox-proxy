@@ -3,7 +3,7 @@ import axios from "axios";
 import cors from "cors";
 import NodeCache from "node-cache";
 import schedule from "node-schedule";
-import HttpsProxyAgent from "https-proxy-agent";
+import { HttpsProxyAgent } from "https-proxy-agent";
 
 const app = express();
 app.use(cors());
