@@ -3,6 +3,7 @@ import axios from "axios";
 import cors from "cors";
 import NodeCache from "node-cache";
 import schedule from "node-schedule";
+import https from "https";
 
 const app = express();
 app.use(cors());
@@ -12,10 +13,17 @@ const CACHE_TTL = 60 * 60 * 24; // Caché por 24 horas
 const CACHE_KEY = "xboxGames";
 const gameCache = new NodeCache({ stdTTL: CACHE_TTL });
 
+// Creamos un agente HTTPS para evitar problemas de proxy o certificados
+// Esto soluciona el error ECONNREFUSED en algunos entornos de despliegue
+const httpsAgent = new https.Agent({
+  rejectUnauthorized: false,
+  maxSockets: 5
+});
+
 // API de Microsoft para juegos de PC
 const BASE_URL = "https://reco-public.rec.mp.microsoft.com/channels/Reco/V8.0/Lists/Computed/pc";
 const MARKET = "AR";
-const LANGUAGE = "es";
+const LANGUAGE = "es"
 const COUNT = 100; // Juegos por página
 
 /**
@@ -42,13 +50,14 @@ async function fetchAllGames() {
           "User-Agent": "Mozilla/5.0",
           Accept: "application/json",
         },
-        timeout: 30000 // Aumentar el tiempo de espera
+        timeout: 30000,
+        httpsAgent: httpsAgent, // Aquí pasamos el agente para forzar la conexión directa
       });
 
       const items = res.data.Items || [];
 
       if (items.length === 0) {
-        break; // No hay más juegos, salir del ciclo
+        break;
       }
 
       const mapped = items.map((p) => ({
@@ -65,14 +74,13 @@ async function fetchAllGames() {
       console.log(`Paginación: Obtenidos ${allProducts.length} juegos de ${totalItemsFound}.`);
 
       if (items.length < COUNT) {
-          break; // La última página tiene menos de 100 items, es el final
+          break;
       }
     }
     console.log(`✅ ¡Proceso de obtención de juegos completado! Total: ${allProducts.length}`);
     return allProducts;
   } catch (err) {
     console.error(`❌ Error al obtener juegos de la API de Microsoft: ${err.message}`);
-    // Si hay un error, devolvemos la lista de juegos que se pudo obtener hasta el momento.
     return allProducts;
   }
 }
@@ -107,8 +115,6 @@ app.get("/xbox-games", (req, res) => {
     });
   }
 
-  // En una aplicación real, la lógica para nuevos juegos y cambios de precio
-  // se gestionaría con una base de datos. Aquí, solo devolvemos los datos completos.
   const lastUpdated = new Date(gameCache.getStats().v[CACHE_KEY].t).toISOString();
   
   res.json({
