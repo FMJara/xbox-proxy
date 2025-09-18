@@ -10,7 +10,7 @@ const PORT = process.env.PORT || 3000;
 const CACHE_TTL = 60 * 60; // 1 hora
 const gameCache = new NodeCache({ stdTTL: CACHE_TTL });
 
-const BASE_URL = "https://reco-public.rec.mp.microsoft.com/channels/Reco/V8.0/Lists/Computed/pc";
+const BASE_URL = "https://www.xbox.com/es-AR/games/all-games/pc?PlayWith=PC";
 const MARKET = "US";       // Región
 const LANGUAGE = "en";     // Idioma
 const COUNT = 100;         // Juegos por página
