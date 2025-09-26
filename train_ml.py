@@ -1,53 +1,67 @@
+# train_ml.py
 import os
-import json
+import pandas as pd
 import numpy as np
-import joblib
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report
+import joblib
 
-DATA_DIR = "./data"
-OUTPUT_MODEL = "model.pkl"
+DATA_DIR = "data"
+MODEL_PATH = "model.pkl"
 
 def load_data():
-    X, y = [], []
+    all_data = []
     for file in os.listdir(DATA_DIR):
-        if not file.endswith(".json"):
-            continue
-        with open(os.path.join(DATA_DIR, file)) as f:
-            data = json.load(f)
-            for row in data:
-                if None in [row['tenkan'], row['kijun'], row['senkou_a'], row['senkou_b'], row['chikou'], row['rsi'], row['ema']]:
-                    continue
-                X.append([
-                    row['tenkan'],
-                    row['kijun'],
-                    row['senkou_a'],
-                    row['senkou_b'],
-                    row['chikou'],
-                    row['rsi'],
-                    row['ema']
-                ])
-                # Etiqueta ficticia: sube si precio actual > EMA
-                y.append(1 if row['close'] > row['ema'] else 0)
-    return np.array(X), np.array(y)
+        if file.endswith(".csv"):
+            name = file.replace(".csv", "")
+            path = os.path.join(DATA_DIR, file)
+            print(f"📂 Cargando {name} desde {path}")
+            df = pd.read_csv(path)
 
-def train():
-    X, y = load_data()
-    if len(X) == 0:
+            if df.empty or len(df) < 50:
+                print(f"⚠️ {name} tiene pocos datos, se omite")
+                continue
+
+            # Features (OHLCV)
+            df["return"] = df["close"].pct_change()
+            df["ma5"] = df["close"].rolling(5).mean()
+            df["ma10"] = df["close"].rolling(10).mean()
+
+            df.dropna(inplace=True)
+
+            # Etiqueta: 1 si sube, 0 si baja
+            df["target"] = (df["return"].shift(-1) > 0).astype(int)
+
+            features = df[["open", "high", "low", "close", "volume", "ma5", "ma10"]]
+            target = df["target"]
+
+            all_data.append((features, target))
+
+    return all_data
+
+def train_model():
+    datasets = load_data()
+    if not datasets:
         print("❌ No hay datos válidos para entrenar.")
         return
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    X = pd.concat([f for f, _ in datasets])
+    y = pd.concat([t for _, t in datasets])
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42, shuffle=False
+    )
+
     model = RandomForestClassifier(n_estimators=100, random_state=42)
     model.fit(X_train, y_train)
 
-    y_pred = model.predict(X_test)
-    acc = accuracy_score(y_test, y_pred)
-    print(f"✅ Modelo entrenado con accuracy: {acc:.2f}")
+    preds = model.predict(X_test)
+    print("📊 Reporte de clasificación:")
+    print(classification_report(y_test, preds))
 
-    joblib.dump(model, OUTPUT_MODEL)
-    print(f"💾 Modelo guardado en {OUTPUT_MODEL}")
+    joblib.dump(model, MODEL_PATH)
+    print(f"✅ Modelo guardado en {MODEL_PATH}")
 
 if __name__ == "__main__":
-    train()
+    train_model()
