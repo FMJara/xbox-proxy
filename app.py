@@ -1,120 +1,155 @@
 import ccxt
 import pandas as pd
-import plotly.graph_objects as go
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
+import numpy as np
+import json
+from datetime import datetime
+import pandas_ta as pta
+from ta.trend import ichimoku_conversion_line, ichimoku_base_line
 
-app = FastAPI()
+# Lista de cripto
+cryptos = ['XRP/USDT','HBAR/USDT','XLM/USDT','DAG/USDT','PAW/USDT','QUBIC/USDT',
+           'DOVU/USDT','XDC/USDT','ZBNC/USDT','DOGE/USDT','XPL/USDT','SHX/USDT']
 
-# Lista de criptos
-symbols_whitelist = [
-    'XRP/USDT', 'HBAR/USDT', 'XLM/USDT', 'DAG/USDT', 'PAW/USDT',
-    'QUBIC/USDT', 'DOVU/USDT', 'XDC/USDT', 'ZBCN/USDT', 'DOGE/USDT',
-    'XPL/USDT', 'SHX/USDT'
-]
+exchange = ccxt.mexc({'enableRateLimit': True, 'asyncio_loop': False, 'timeout': 10000})
 
-# Configurar exchange
-exchange = ccxt.mexc({
-    'enableRateLimit': True,
-    'timeout': 10000
-})
+def fetch_ohlcv_safe(symbol, timeframe='1h', limit=200):
+    for _ in range(3):
+        try:
+            return exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
+        except:
+            import time; time.sleep(2)
+    raise Exception(f"No se pudo obtener {symbol}")
 
-# Función para calcular Ichimoku
 def calcular_ichimoku(df):
-    df['tenkan'] = (df['high'].rolling(9).max() + df['low'].rolling(9).min()) / 2
-    df['kijun'] = (df['high'].rolling(26).max() + df['low'].rolling(26).min()) / 2
-    df['senkou_a'] = ((df['tenkan'] + df['kijun']) / 2).shift(26)
-    df['senkou_b'] = ((df['high'].rolling(52).max() + df['low'].rolling(52).min()) / 2).shift(26)
+    df['tenkan'] = ichimoku_conversion_line(df['high'], df['low'], 9)
+    df['kijun'] = ichimoku_base_line(df['high'], df['low'], 26)
+    df['senkou_a'] = df['tenkan'].shift(26)
+    df['senkou_b'] = df['kijun'].shift(26)
     df['chikou'] = df['close'].shift(-26)
+    df['cloud'] = df['senkou_a'] > df['senkou_b']
     return df
 
-# Generar señales
 def generar_senales(df):
-    df['senal'] = None
-    df.loc[(df['tenkan'] > df['kijun']) & (df['close'] > df['senkou_a']) & (df['chikou'] > df['close'].shift(26)), 'senal'] = 'Compra'
-    df.loc[(df['tenkan'] < df['kijun']) & (df['close'] < df['senkou_b']) & (df['chikou'] < df['close'].shift(26)), 'senal'] = 'Venta'
+    # Cruce Tenkan/Kijun
+    df['signal_cross'] = np.where(df['tenkan'] > df['kijun'], 'alcista', 'bajista')
+    # Precio vs nube
+    df['signal_cloud'] = np.where(df['close'] > df[['senkou_a','senkou_b']].max(axis=1),'alcista',
+                          np.where(df['close'] < df[['senkou_a','senkou_b']].min(axis=1),'bajista','neutral'))
+    # Chikou
+    df['signal_chikou'] = np.where(df['chikou'] > df['close'].shift(26),'alcista','bajista')
     return df
 
-# Crear gráfico Plotly
-def crear_grafico(df, simbolo):
-    fig = go.Figure()
+# Pre-calculo cada 10 min (simulado aquí)
+data_folder = 'data'
+import os
+os.makedirs(data_folder, exist_ok=True)
 
-    # Velas
-    fig.add_trace(go.Candlestick(
-        x=df.index, open=df['open'], high=df['high'], low=df['low'], close=df['close'],
-        name='Velas'
-    ))
+for sym in cryptos:
+    ohlcv = fetch_ohlcv_safe(sym, limit=200)
+    df = pd.DataFrame(ohlcv, columns=['timestamp','open','high','low','close','volume'])
+    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+    df = calcular_ichimoku(df)
+    df = generar_senales(df)
+    df.to_json(f"{data_folder}/{sym.replace('/','_')}_ichimoku.json", orient='records', date_format='iso')
+    print(f"{sym} guardado.")
 
-    # Ichimoku
-    fig.add_trace(go.Scatter(x=df.index, y=df['tenkan'], mode='lines', name='Tenkan', line=dict(color='blue')))
-    fig.add_trace(go.Scatter(x=df.index, y=df['kijun'], mode='lines', name='Kijun', line=dict(color='red')))
-    fig.add_trace(go.Scatter(x=df.index, y=df['senkou_a'], mode='lines', name='Senkou A', line=dict(color='green')))
-    fig.add_trace(go.Scatter(x=df.index, y=df['senkou_b'], mode='lines', name='Senkou B', line=dict(color='orange')))
-    fig.add_trace(go.Scatter(x=df.index, y=df['chikou'], mode='lines', name='Chikou', line=dict(color='purple')))
+# ------------------------------
+# Generación HTML interactivo
+# ------------------------------
+html = """
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Ichimoku Interactivo</title>
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<style>
+body { font-family: Arial; background: #1c1c1c; color: #f0f0f0; margin:0; padding:10px; }
+#chart { width:75%; height:600px; display:inline-block; }
+#panel { width:23%; display:inline-block; vertical-align:top; margin-left:2%; }
+.button-i { cursor:pointer; color:#0f0; font-weight:bold; margin-left:5px; }
+.signal-active { background-color: rgba(255,255,0,0.2); }
+select { font-size:1rem; padding:3px; margin-bottom:10px; width:100%; }
+</style>
+</head>
+<body>
+<select id="cryptoSelect">
+  <option value="XRP_USDT">XRP</option>
+  <option value="HBAR_USDT">HBAR</option>
+  <option value="XLM_USDT">XLM</option>
+  <option value="DAG_USDT">DAG</option>
+  <option value="PAW_USDT">PAW</option>
+  <option value="QUBIC_USDT">QUBIC</option>
+  <option value="DOVU_USDT">DOVU</option>
+  <option value="XDC_USDT">XDC</option>
+  <option value="ZBNC_USDT">ZBNC</option>
+  <option value="DOGE_USDT">DOGE</option>
+  <option value="XPL_USDT">XPL</option>
+  <option value="SHX_USDT">SHX</option>
+</select>
 
-    # Señales
-    fig.add_trace(go.Scatter(
-        x=df.index[df['senal']=='Compra'], y=df['close'][df['senal']=='Compra'],
-        mode='markers', marker=dict(symbol='triangle-up', color='green', size=10), name='Compra'
-    ))
-    fig.add_trace(go.Scatter(
-        x=df.index[df['senal']=='Venta'], y=df['close'][df['senal']=='Venta'],
-        mode='markers', marker=dict(symbol='triangle-down', color='red', size=10), name='Venta'
-    ))
+<div id="chart"></div>
+<div id="panel">
+<h3>Señales Ichimoku</h3>
+<div>Tenkan <span class="button-i" onclick="showInfo('tenkan')">(i)</span></div>
+<div>Kijun <span class="button-i" onclick="showInfo('kijun')">(i)</span></div>
+<div>Senkou <span class="button-i" onclick="showInfo('senkou')">(i)</span></div>
+<div>Chikou <span class="button-i" onclick="showInfo('chikou')">(i)</span></div>
+<div id="infoBox" style="margin-top:10px;"></div>
+</div>
 
-    fig.update_layout(
-        title=f'Ichimoku - {simbolo}',
-        xaxis_title='Fecha',
-        yaxis_title='Precio',
-        xaxis_rangeslider_visible=False
-    )
-    return fig
+<script>
+let currentData = null;
+async function loadCrypto(sym){
+    const res = await fetch('data/' + sym + '_ichimoku.json');
+    const data = await res.json();
+    currentData = data;
+    drawChart(data);
+}
 
-# Endpoint principal
-@app.get("/", response_class=HTMLResponse)
-async def home(request: Request):
-    # Obtener parámetro ?symbol=
-    symbol = request.query_params.get("symbol", "XRP/USDT")
-    if symbol not in symbols_whitelist:
-        symbol = "XRP/USDT"
+function drawChart(data){
+    const x = data.map(d=>d.timestamp);
+    const close = data.map(d=>d.close);
+    const tenkan = data.map(d=>d.tenkan);
+    const kijun = data.map(d=>d.kijun);
+    const senkou_a = data.map(d=>d.senkou_a);
+    const senkou_b = data.map(d=>d.senkou_b);
+    const chikou = data.map(d=>d.chikou);
 
-    try:
-        ohlcv = exchange.fetch_ohlcv(symbol, timeframe='1h', limit=200)
-        df = pd.DataFrame(ohlcv, columns=['timestamp','open','high','low','close','volume'])
-        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        df.set_index('timestamp', inplace=True)
-        df = calcular_ichimoku(df)
-        df = generar_senales(df)
-        grafico_html = crear_grafico(df, symbol).to_html(full_html=False)
-    except Exception as e:
-        grafico_html = f"<p>Error cargando {symbol}: {e}</p>"
+    const traces = [
+        {x:x, y:close, type:'scatter', mode:'lines', name:'Close', line:{color:'#00BFFF',width:2}},
+        {x:x, y:tenkan, type:'scatter', mode:'lines', name:'Tenkan', line:{color:'lime',width:1}, visible:true},
+        {x:x, y:kijun, type:'scatter', mode:'lines', name:'Kijun', line:{color:'orange',width:1}, visible:true},
+        {x:x, y:senkou_a, type:'scatter', mode:'lines', name:'Senkou A', line:{color:'pink',width:1}, fill:'tonexty', visible:true},
+        {x:x, y:senkou_b, type:'scatter', mode:'lines', name:'Senkou B', line:{color:'magenta',width:1}, visible:true},
+        {x:x, y:chikou, type:'scatter', mode:'lines', name:'Chikou', line:{color:'yellow',width:1}, visible:true}
+    ];
 
-    # HTML con selector
-    html = f"""
-    <html>
-    <head>
-        <title>Ichimoku Criptos</title>
-        <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
-    </head>
-    <body style="background-color:#1c1c1c; color:#f0f0f0; font-family:Arial;">
-        <h1>Ichimoku Criptos</h1>
-        <p>Selecciona una criptomoneda:</p>
-        <select id="crypto_select" onchange="cambiarGrafico()">
-    """
-    for s in symbols_whitelist:
-        selected = "selected" if s==symbol else ""
-        html += f'<option value="{s}" {selected}>{s}</option>'
-    html += "</select><div id='grafico'>" + grafico_html + "</div>"
+    Plotly.newPlot('chart', traces, {margin:{t:20}});
+}
 
-    # Script para cambiar gráfico
-    html += """
-    <script>
-    function cambiarGrafico(){
-        var s = document.getElementById('crypto_select').value;
-        window.location.href = "/?symbol=" + s;
-    }
-    </script>
-    </body></html>
-    """
-    return html
+function showInfo(key){
+    const infoBox = document.getElementById('infoBox');
+    let infoText = '';
+    if(key==='tenkan') infoText = "Cruce Tenkan/Kijun: arriba=alcista, abajo=bajista";
+    if(key==='kijun') infoText = "Kijun: línea base para tendencias";
+    if(key==='senkou') infoText = "Precio vs Nube: arriba=alcista, debajo=bajista, dentro=n. neutral";
+    if(key==='chikou') infoText = "Chikou: por encima del precio 26p = confirm alcista, debajo=bajista";
+    infoBox.innerText = infoText;
+}
+
+document.getElementById('cryptoSelect').addEventListener('change', e=>{
+    loadCrypto(e.target.value);
+});
+
+// Cargar inicial
+loadCrypto('XRP_USDT');
+</script>
+</body>
+</html>
+"""
+
+with open("ichimoku_dashboard.html","w",encoding="utf-8") as f:
+    f.write(html)
+
+print("HTML interactivo generado: ichimoku_dashboard.html")
