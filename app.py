@@ -8,7 +8,7 @@ from ta.trend import ichimoku_conversion_line, ichimoku_base_line
 
 # Lista de cripto
 cryptos = ['XRP/USDT','HBAR/USDT','XLM/USDT','DAG/USDT','PAW/USDT','QUBIC/USDT',
-           'DOVU/USDT','XDC/USDT','ZBNC/USDT','DOGE/USDT','XPL/USDT','SHX/USDT']
+           'DOVU/USDT','XDC/USDT','ZBCN/USDT','DOGE/USDT','XPL/USDT','SHX/USDT']
 
 exchange = ccxt.mexc({'enableRateLimit': True, 'asyncio_loop': False, 'timeout': 10000})
 
