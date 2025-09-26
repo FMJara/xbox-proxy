@@ -8,8 +8,12 @@ from plotly.offline import plot
 
 app = Flask(__name__)
 
-DATA_DIR = "./data"
-MODEL_PATH = "model.pkl"
+# Carpeta base del proyecto
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Rutas
+DATA_DIR = os.path.join(BASE_DIR, "data")
+MODEL_PATH = os.path.join(BASE_DIR, "model", "model.pkl")
 
 # Cargar modelo entrenado
 model = None
@@ -96,4 +100,6 @@ def index():
     return render_template_string(HTML_TEMPLATE, charts=charts)
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    # Permite correr localmente
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
