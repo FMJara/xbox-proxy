@@ -1,92 +1,79 @@
 import yfinance as yf
 import pandas as pd
-import numpy as np
 import json
 import os
 
 DATA_DIR = "./data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
-cryptos = {
-    "XRP": "XRP-USD",
-    "HBAR": "HBAR-USD",
-    "XLM": "XLM-USD",
-    "DAG": "DAG-USD",
-    "PAW": "PAW-USD",   # ⚠️ puede que no esté en Yahoo
-    "QUBIC": "QUBIC-USD", # ⚠️ puede que no esté en Yahoo
-    "DOVU": "DOV-USD", # ⚠️ puede que no esté en Yahoo
-    "XDC": "XDC-USD",
-    "ZBCN": "ZBC-USD", # ⚠️ puede que no esté en Yahoo
-    "DOGE": "DOGE-USD",
-    "XPL": "XPL-USD",  # ⚠️ puede que no esté en Yahoo
-    "SHX": "SHX-USD"   # ⚠️ puede que no esté en Yahoo
-}
+cryptos = ["XRP","HBAR","XLM","DAG","PAW","QUBIC","DOVU","XDC","ZBCN","DOGE","XPL","SHX"]
 
-def ichimoku(df):
+def compute_indicators(df):
+    # Tenkan-sen (9 periodos)
     high_9 = df['High'].rolling(window=9).max()
     low_9 = df['Low'].rolling(window=9).min()
     df['tenkan'] = (high_9 + low_9) / 2
 
+    # Kijun-sen (26 periodos)
     high_26 = df['High'].rolling(window=26).max()
     low_26 = df['Low'].rolling(window=26).min()
     df['kijun'] = (high_26 + low_26) / 2
 
+    # Senkou Span A (26 adelante)
     df['senkou_a'] = ((df['tenkan'] + df['kijun']) / 2).shift(26)
+
+    # Senkou Span B (52 adelante)
     high_52 = df['High'].rolling(window=52).max()
     low_52 = df['Low'].rolling(window=52).min()
     df['senkou_b'] = ((high_52 + low_52) / 2).shift(26)
 
+    # Chikou Span (26 atrás)
     df['chikou'] = df['Close'].shift(-26)
-    return df
 
-def rsi(df, period=14):
+    # RSI (14 periodos)
     delta = df['Close'].diff()
-    gain = np.where(delta > 0, delta, 0)
-    loss = np.where(delta < 0, -delta, 0)
-    avg_gain = pd.Series(gain).rolling(window=period).mean()
-    avg_loss = pd.Series(loss).rolling(window=period).mean()
-    rs = avg_gain / avg_loss
+    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    rs = gain / loss
     df['rsi'] = 100 - (100 / (1 + rs))
+
+    # EMA (20 periodos)
+    df['ema'] = df['Close'].ewm(span=20, adjust=False).mean()
+
     return df
 
-def ema(df, period=20):
-    df['ema'] = df['Close'].ewm(span=period, adjust=False).mean()
-    return df
+for crypto in cryptos:
+    ticker = f"{crypto}-USD"
+    print(f"Descargando datos de {crypto} ({ticker})...")
 
-def process_crypto(symbol, ticker):
-    print(f"Descargando datos de {symbol} ({ticker})...")
     try:
-        df = yf.download(ticker, period="3mo", interval="1h")
+        df = yf.download(ticker, period="3mo", interval="1h", auto_adjust=True)
         if df.empty:
-            print(f"⚠️ No se encontraron datos para {symbol}")
-            return
-        df = ichimoku(df)
-        df = rsi(df)
-        df = ema(df)
+            print(f"❌ No se encontraron datos para {crypto}")
+            continue
 
-        records = []
-        for idx, row in df.iterrows():
-            records.append({
-                "timestamp": idx.strftime("%Y-%m-%d %H:%M"),
-                "close": round(row['Close'], 6),
-                "tenkan": None if pd.isna(row['tenkan']) else round(row['tenkan'], 6),
-                "kijun": None if pd.isna(row['kijun']) else round(row['kijun'], 6),
-                "senkou_a": None if pd.isna(row['senkou_a']) else round(row['senkou_a'], 6),
-                "senkou_b": None if pd.isna(row['senkou_b']) else round(row['senkou_b'], 6),
-                "chikou": None if pd.isna(row['chikou']) else round(row['chikou'], 6),
-                "rsi": None if pd.isna(row['rsi']) else round(row['rsi'], 2),
-                "ema": None if pd.isna(row['ema']) else round(row['ema'], 6),
-                "signal": "yellow"
+        df = compute_indicators(df)
+
+        # Armamos JSON
+        data = []
+        for i, row in df.iterrows():
+            data.append({
+                "timestamp": i.strftime("%Y-%m-%d %H:%M"),
+                "close": round(float(row['Close']), 5),  # <- Forzamos 1D float
+                "tenkan": round(float(row['tenkan']), 5) if pd.notna(row['tenkan']) else None,
+                "kijun": round(float(row['kijun']), 5) if pd.notna(row['kijun']) else None,
+                "senkou_a": round(float(row['senkou_a']), 5) if pd.notna(row['senkou_a']) else None,
+                "senkou_b": round(float(row['senkou_b']), 5) if pd.notna(row['senkou_b']) else None,
+                "chikou": round(float(row['chikou']), 5) if pd.notna(row['chikou']) else None,
+                "rsi": round(float(row['rsi']), 2) if pd.notna(row['rsi']) else None,
+                "ema": round(float(row['ema']), 5) if pd.notna(row['ema']) else None,
+                "signal": "yellow"  # por defecto
             })
 
-        with open(f"{DATA_DIR}/{symbol}.json", "w") as f:
-            json.dump(records, f, indent=2)
+        with open(f"{DATA_DIR}/{crypto}.json", "w") as f:
+            json.dump(data, f, indent=2)
 
-        print(f"✅ Guardado {symbol}.json con {len(records)} registros.")
+        print(f"✅ Guardado {crypto}.json con {len(data)} registros")
 
     except Exception as e:
-        print(f"❌ Error con {symbol}: {e}")
-
-if __name__ == "__main__":
-    for symbol, ticker in cryptos.items():
-        process_crypto(symbol, ticker)
+        print(f"❌ Error con {crypto}: {e}")
