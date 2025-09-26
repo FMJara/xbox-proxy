@@ -24,18 +24,18 @@ def home():
     </head>
     <body>
         <select id="cryptoSelect">
-            <option value="XRP_USDT">XRP</option>
-            <option value="HBAR_USDT">HBAR</option>
-            <option value="XLM_USDT">XLM</option>
-            <option value="DAG_USDT">DAG</option>
-            <option value="PAW_USDT">PAW</option>
-            <option value="QUBIC_USDT">QUBIC</option>
-            <option value="DOVU_USDT">DOVU</option>
-            <option value="XDC_USDT">XDC</option>
-            <option value="ZBCN_USDT">ZBCN</option>
-            <option value="DOGE_USDT">DOGE</option>
-            <option value="XPL_USDT">XPL</option>
-            <option value="SHX_USDT">SHX</option>
+            <option value="XRP">XRP</option>
+            <option value="HBAR">HBAR</option>
+            <option value="XLM">XLM</option>
+            <option value="DAG">DAG</option>
+            <option value="PAW">PAW</option>
+            <option value="QUBIC">QUBIC</option>
+            <option value="DOVU">DOVU</option>
+            <option value="XDC">XDC</option>
+            <option value="ZBCN">ZBCN</option>
+            <option value="DOGE">DOGE</option>
+            <option value="XPL">XPL</option>
+            <option value="SHX">SHX</option>
         </select>
 
         <div id="chart"></div>
@@ -56,7 +56,7 @@ def home():
 
             async function loadCrypto(sym){
                 try {
-                    const res = await fetch('/data/' + sym + '_ichimoku.json');
+                    const res = await fetch('/data/' + sym + '.json');
                     const data = await res.json();
                     currentData = data;
                     drawChart(data);
@@ -87,7 +87,6 @@ def home():
 
                 Plotly.newPlot('chart', traces, {margin:{t:20}});
 
-                // Actualizar semáforo
                 const lastSignal = data[data.length-1].signal;
                 const signalIcon = document.getElementById('signalColor');
                 if(lastSignal === "green") signalIcon.textContent = "🟢";
@@ -110,8 +109,7 @@ def home():
                 loadCrypto(e.target.value);
             });
 
-            // Cargar inicial
-            loadCrypto('XRP_USDT');
+            loadCrypto('XRP');
         </script>
     </body>
     </html>
