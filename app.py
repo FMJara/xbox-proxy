@@ -3,11 +3,8 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 app = FastAPI()
-
-# Servir carpeta "data" como estática
 app.mount("/data", StaticFiles(directory="data"), name="data")
 
-# HTML embebido
 @app.get("/", response_class=HTMLResponse)
 def home():
     html = """
@@ -22,7 +19,6 @@ def home():
             #chart { width:75%; height:600px; display:inline-block; }
             #panel { width:23%; display:inline-block; vertical-align:top; margin-left:2%; }
             .button-i { cursor:pointer; color:#0f0; font-weight:bold; margin-left:5px; }
-            .signal-active { background-color: rgba(255,255,0,0.2); }
             select { font-size:1rem; padding:3px; margin-bottom:10px; width:100%; }
         </style>
     </head>
@@ -49,6 +45,9 @@ def home():
             <div>Kijun <span class="button-i" onclick="showInfo('kijun')">(i)</span></div>
             <div>Senkou <span class="button-i" onclick="showInfo('senkou')">(i)</span></div>
             <div>Chikou <span class="button-i" onclick="showInfo('chikou')">(i)</span></div>
+            <div id="semaforo" style="margin-top:10px; font-size:1.2rem;">
+                Señal actual: <span id="signalColor">⚪</span>
+            </div>
             <div id="infoBox" style="margin-top:10px;"></div>
         </div>
 
@@ -79,20 +78,25 @@ def home():
                     {x:x, y:close, type:'scatter', mode:'lines', name:'Close', line:{color:'#00BFFF',width:2}},
                     {x:x, y:tenkan, type:'scatter', mode:'lines', name:'Tenkan', line:{color:'lime',width:1}},
                     {x:x, y:kijun, type:'scatter', mode:'lines', name:'Kijun', line:{color:'orange',width:1}},
-                    // Nube Ichimoku
                     {x:x, y:senkou_a, type:'scatter', mode:'lines', name:'Senkou A',
-                        line:{color:'pink',width:1},
-                        fill:'tonexty', fillcolor:'rgba(255,192,203,0.3)'},
+                        line:{color:'pink',width:1}, fill:'tonexty', fillcolor:'rgba(255,192,203,0.3)'},
                     {x:x, y:senkou_b, type:'scatter', mode:'lines', name:'Senkou B',
                         line:{color:'magenta',width:1}},
                     {x:x, y:chikou, type:'scatter', mode:'lines', name:'Chikou', line:{color:'yellow',width:1}}
                 ];
 
                 Plotly.newPlot('chart', traces, {margin:{t:20}});
+
+                // Actualizar semáforo
+                const lastSignal = data[data.length-1].signal;
+                const signalIcon = document.getElementById('signalColor');
+                if(lastSignal === "green") signalIcon.textContent = "🟢";
+                else if(lastSignal === "yellow") signalIcon.textContent = "🟡";
+                else if(lastSignal === "red") signalIcon.textContent = "🔴";
+                else signalIcon.textContent = "⚪";
             }
 
             function showInfo(key){
-                console.log(key); // Para debug
                 const infoBox = document.getElementById('infoBox');
                 let infoText = '';
                 if(key==='tenkan') infoText = "Tenkan cruza por arriba de Kijun = señal alcista; por debajo = bajista";
